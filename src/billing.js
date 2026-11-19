@@ -425,7 +425,7 @@ async function docPage(env, id, url) {
   }
   if (isInv && ["draft", "sent"].includes(doc.status)) acts.push(btn("void", "Void", "danger", ` onsubmit="return confirm('Void ${esc(doc.number)}? It stays in the list as VOID.')"`));
   if (doc.status === "draft") acts.push(btn("delete", "Delete draft", "danger", ` onsubmit="return confirm('Delete draft ${esc(doc.number)}?')"`));
-  if (isInv) acts.push(btn("repeat", "↻ Next month's invoice", "p"));
+  if (isInv && (doc.invoice_type || "full") === "full") acts.push(btn("repeat", "↻ Next month's invoice", "p"));
   acts.push(btn("duplicate", "Duplicate"));
 
   const phone = (client?.phone || "").replace(/\D/g, "").replace(/^0/, "60");
@@ -486,7 +486,7 @@ async function act(request, env, id) {
     }
     case "repeat": {
       // Same client and items with every date in the subject, items and notes moved one month on; a new draft for review.
-      if (doc.kind !== "invoice") return go(`/admin/doc/${id}`);
+      if (doc.kind !== "invoice" || (doc.invoice_type || "full") !== "full") return go(`/admin/doc/${id}`);
       const issue = myToday();
       const number = await nextNumber(env, "invoice", issue);
       const items = JSON.stringify(JSON.parse(doc.items).map(it => ({ ...it, desc: nextMonthText(it.desc) })));

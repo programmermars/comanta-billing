@@ -185,6 +185,7 @@ function paid(number, amount, date, ref) {
 function repeat(number) {
   const d = findDoc(number);
   if (d.kind !== "invoice") throw new Error(`${d.number} is not an invoice`);
+  if ((d.invoice_type || "full") !== "full") throw new Error(`${d.number} is a ${d.invoice_type} invoice; repeat a full (monthly) invoice instead`);
   const s = settings();
   const issue = myToday();
   const inv = nextNumber("invoice", issue);
