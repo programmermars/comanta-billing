@@ -1,0 +1,19 @@
+{
+  "name": "comanta-billing",
+  "version": "1.0.0",
+  "description": "Quotations, invoices and receipts for small Malaysian businesses, on Cloudflare Workers + D1.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "wrangler dev --var LOCAL_DEV:1 --test-scheduled",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 execute billing-db --remote --file=schema.sql",
+    "db:init:local": "wrangler d1 execute billing-db --local --file=schema.sql",
+    "billing": "node tools/billing.mjs",
+    "check": "node --check src/index.js && node --check src/billing.js && node --check src/billing-core.js && node --check src/backup.js && node --check src/notify.js && node --check tools/billing.mjs && node tools/smoke-test.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "^4.165.0"
+  }
+}

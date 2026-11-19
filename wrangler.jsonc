@@ -1,0 +1,30 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "billing",
+  "main": "src/index.js",
+  "compatibility_date": "2026-11-10",
+  "observability": { "enabled": true },
+
+  // 1. Create the database:  npx wrangler d1 create billing-db  → paste its database_id here.
+  "d1_databases": [
+    { "binding": "DB", "database_name": "billing-db", "database_id": "00000000-0000-0000-0000-000000000000" }
+  ],
+
+  // 2. Your details. OWNER_EMAIL gets the login codes, "quotation accepted" alerts and the daily backup;
+  //    it must be a verified destination address in Cloudflare Email Routing.
+  //    MAIL_FROM must be an address on a domain that has Email Routing turned on.
+  "vars": {
+    "SITE_URL": "https://billing.example.com",
+    "OWNER_EMAIL": "you@example.com",
+    "MAIL_FROM": "billing@example.com"
+  },
+  "send_email": [
+    { "name": "NOTIFY", "destination_address": "you@example.com" }
+  ],
+
+  // 3. Daily database backup emailed to OWNER_EMAIL at 13:00 UTC (9 pm Malaysia time).
+  "triggers": { "crons": ["0 13 * * *"] }
+
+  // 4. Optional: serve it on your own domain.
+  // "routes": [{ "pattern": "billing.example.com", "custom_domain": true }]
+}
