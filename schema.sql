@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS docs (
   terms         TEXT,                  -- shown on the document
   accepted_at   TEXT,
   accepted_name TEXT,
-  synced_at     TEXT                   -- last PDF copy to Google Drive
+  synced_at     TEXT                   -- last PDF export (tools/billing.mjs sync)
 );
 CREATE INDEX IF NOT EXISTS docs_kind ON docs (kind, id);
 
@@ -112,3 +112,35 @@ CREATE TABLE IF NOT EXISTS admin_sessions (
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   expires_at TEXT NOT NULL
 );
+
+-- Every payment received on an invoice (the books count income on the date the money arrived).
+CREATE TABLE IF NOT EXISTS payments (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  invoice_id  INTEGER NOT NULL REFERENCES docs(id),
+  amount_sen  INTEGER NOT NULL,
+  paid_date   TEXT NOT NULL,
+  ref         TEXT
+);
+CREATE INDEX IF NOT EXISTS payments_date ON payments (paid_date);
+
+-- Business expenses for the books and Form B.
+-- reimbursed: no | to_bill (a client should pay it back) | reimbursed (client paid it back: not deductible, not income)
+CREATE TABLE IF NOT EXISTS expenses (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+  spent_date      TEXT NOT NULL,
+  vendor          TEXT NOT NULL,
+  description     TEXT,
+  category        TEXT NOT NULL,
+  amount_sen      INTEGER NOT NULL,
+  paid_from       TEXT NOT NULL DEFAULT 'business',   -- business | personal
+  reimbursed      TEXT NOT NULL DEFAULT 'no',
+  client_id       INTEGER REFERENCES clients(id),
+  reimbursed_date TEXT,
+  deductible_pct  INTEGER NOT NULL DEFAULT 100,
+  file            TEXT,                               -- receipt file name or link
+  notes           TEXT
+);
+CREATE INDEX IF NOT EXISTS expenses_date ON expenses (spent_date);

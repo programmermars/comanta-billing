@@ -8,7 +8,10 @@
 //   node tools/billing.mjs invoice QT-2026-0001 deposit|full|balance   -> draft invoice from a quotation
 //   node tools/billing.mjs paid INV-2026-0001 1000 [2026-11-20] [bank ref]
 //   node tools/billing.mjs receipt INV-2026-0001 [amount] [2026-11-20] [bank ref]   receipt for money already recorded
-//   node tools/billing.mjs sync                          backup + PDFs + income.csv into ./exports
+//   node tools/billing.mjs expense add exp.json          record a business expense (format below)
+//   node tools/billing.mjs expense list [2026]
+//   node tools/billing.mjs books [2026]                  money received, expenses and profit per month
+//   node tools/billing.mjs sync                          backup + PDFs + income.csv + expenses.csv into ./exports
 //   node tools/billing.mjs backup                        whole database to ./exports/backups (last 90 days kept)
 // Add --local to use the local database from `npm run dev` instead of the live one.
 // Short numbers work too: inv-2026-1 means INV-2026-0001 (with your number prefix, if you set one).
@@ -17,6 +20,9 @@
 // { "client": {"company": "ABC Trading Sdn Bhd", "name": "Mr Tan", "email": "...", "phone": "...", "address": "...", "reg_no": "", "tin": ""},
 //   "title": "Website setup", "items": [{"desc": "Website setup", "qty": 1, "price": 1500}],
 //   "discount": 0, "deposit_pct": 50, "notes": "", "issue_date": "2026-11-20", "end_date": "" }
+// exp.json:
+// { "spent_date": "2026-11-18", "vendor": "SSM", "description": "Business profile", "category": "registration", "amount": 25.80,
+//   "paid_from": "business", "reimbursed": "no", "client": "", "reimbursed_date": "", "deductible_pct": 100, "file": "", "notes": "" }
 //
 // Settings (environment variables): BILLING_EXPORT_DIR (default ./exports), CHROME_PATH (for PDFs).
 import { execFileSync } from "node:child_process";
@@ -25,7 +31,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  STATUS, money, toSen, myToday, addDays, isYmd, calc, invoiceAmounts, randomToken, formatNumber, normalizeNumber, counterSql, renderDoc, renderReceipt,
+  STATUS, EXPENSE_CATEGORIES, categoryName, deductibleSen, money, toSen, myToday, addDays, isYmd, calc, invoiceAmounts, randomToken, formatNumber, normalizeNumber, counterSql, renderDoc, renderReceipt,
 } from "../src/billing-core.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -167,8 +173,10 @@ function paid(number, amount, date, ref) {
   if (add <= 0) throw new Error("amount must be more than 0");
   const total = (d.paid_sen || 0) + add;
   const full = total >= invoiceAmounts(d).bill;
-  sql(`UPDATE docs SET paid_sen = ${total}, paid_date = ${q(isYmd(date) ? date : myToday())}, payment_ref = ${q(ref || d.payment_ref)},
-       status = '${full ? "paid" : "sent"}', updated_at = datetime('now') WHERE id = ${d.id}`);
+  const on = isYmd(date) ? date : myToday();
+  sql(`UPDATE docs SET paid_sen = ${total}, paid_date = ${q(on)}, payment_ref = ${q(ref || d.payment_ref)},
+       status = '${full ? "paid" : "sent"}', updated_at = datetime('now') WHERE id = ${d.id};
+       INSERT INTO payments (invoice_id, amount_sen, paid_date, ref) VALUES (${d.id}, ${add}, ${q(on)}, ${q(ref)})`);
   console.log(`${d.number}: received RM ${money(add)}${full ? " — fully paid" : `, still due RM ${money(invoiceAmounts(d).bill - total)}`}`);
 }
 
@@ -185,6 +193,46 @@ function receipt(number, amount, date, ref) {
        VALUES (${q(no)}, ${q(randomToken())}, ${d.id}, ${d.client_id ?? "NULL"}, ${amt}, ${q(isYmd(date) ? date : (d.paid_date || myToday()))}, 'Bank transfer', ${q(ref || d.payment_ref)})`);
   const r = one(`SELECT * FROM receipts WHERE number = ${q(no)}`);
   console.log(`${no}: RM ${money(amt)} received for ${d.number}. Client link: ${link(r.token)}   Admin: ${SITE}/admin/receipt/${r.id}`);
+}
+
+// ---------- books ----------
+function expenseAdd(file) {
+  const e = JSON.parse(readFileSync(file, "utf8"));
+  const cat = EXPENSE_CATEGORIES.find(c => c.key === e.category);
+  if (!cat) throw new Error(`category must be one of: ${EXPENSE_CATEGORIES.map(c => c.key).join(", ")}`);
+  if (!isYmd(e.spent_date) || !e.vendor || !(toSen(e.amount) > 0)) throw new Error("spent_date, vendor and amount are required");
+  const reimb = ["no", "to_bill", "reimbursed"].includes(e.reimbursed) ? e.reimbursed : "no";
+  const client = e.client ? one(`SELECT id FROM clients WHERE lower(company) = lower(${q(e.client)}) OR lower(name) = lower(${q(e.client)}) LIMIT 1`) : null;
+  if (e.client && !client) throw new Error(`no client called ${e.client}`);
+  const r = one(`INSERT INTO expenses (spent_date, vendor, description, category, amount_sen, paid_from, reimbursed, client_id, reimbursed_date, deductible_pct, file, notes)
+     VALUES (${q(e.spent_date)}, ${q(e.vendor)}, ${q(e.description)}, ${q(cat.key)}, ${toSen(e.amount)}, ${q(e.paid_from === "personal" ? "personal" : "business")}, ${q(reimb)},
+     ${client ? client.id : "NULL"}, ${q(isYmd(e.reimbursed_date) ? e.reimbursed_date : "")}, ${n(e.deductible_pct ?? cat.pct)}, ${q(e.file)}, ${q(e.notes)}) RETURNING id`);
+  console.log(`Expense #${r.id}: ${e.spent_date} ${e.vendor} RM ${money(toSen(e.amount))} (${cat.en}${reimb !== "no" ? ", " + reimb : ""})`);
+}
+
+function expenseList(year) {
+  const y = /^\d{4}$/.test(year || "") ? year : myToday().slice(0, 4);
+  const rows = sql(`SELECT e.*, COALESCE(c.company, c.name) AS client FROM expenses e LEFT JOIN clients c ON c.id = e.client_id WHERE e.spent_date LIKE '${y}-%' ORDER BY e.spent_date, e.id`);
+  if (!rows.length) return console.log("(no expenses)");
+  console.table(rows.map(e => ({ id: e.id, date: e.spent_date, vendor: e.vendor, what: (e.description || "").slice(0, 30), category: e.category,
+    paid: money(e.amount_sen), deductible: money(deductibleSen(e)), reimbursed: e.reimbursed === "no" ? "" : `${e.reimbursed} ${e.client || ""}` })));
+}
+
+function books(year) {
+  const y = /^\d{4}$/.test(year || "") ? year : myToday().slice(0, 4);
+  const pays = sql(`SELECT * FROM payments WHERE paid_date LIKE '${y}-%'`);
+  const exps = sql(`SELECT * FROM expenses WHERE spent_date LIKE '${y}-%'`);
+  const unpaid = one("SELECT COALESCE(SUM(COALESCE(bill_sen,total_sen) - paid_sen),0) AS s FROM docs WHERE kind='invoice' AND status='sent'").s;
+  const rows = [];
+  for (let m = 1; m <= 12; m++) {
+    const mm = `${y}-${String(m).padStart(2, "0")}`;
+    const inc = pays.filter(p => p.paid_date.startsWith(mm)).reduce((a, p) => a + p.amount_sen, 0);
+    const exp = exps.filter(e => e.spent_date.startsWith(mm)).reduce((a, e) => a + deductibleSen(e), 0);
+    if (inc || exp) rows.push({ month: mm, received: money(inc), expenses: money(exp), profit: money(inc - exp) });
+  }
+  const inc = pays.reduce((a, p) => a + p.amount_sen, 0), ded = exps.reduce((a, e) => a + deductibleSen(e), 0);
+  console.log(`Books ${y}: received RM ${money(inc)}, deductible expenses RM ${money(ded)}, profit RM ${money(inc - ded)}; unpaid invoices now RM ${money(unpaid)}`);
+  if (rows.length) console.table(rows);
 }
 
 // Export the whole live database (one file per day, last 90 days kept) plus a readable snapshot of the numbering.
@@ -275,6 +323,13 @@ function sync() {
   }
   mkdirSync(EXPORT, { recursive: true });
   writeFileSync(join(EXPORT, "income.csv"), "\uFEFF" + lines.join("\r\n") + "\r\n", "utf8");
+  // expenses.csv: every expense, with the deductible part (reimbursed ones count 0).
+  const exp = [["date", "vendor", "description", "category", "amount_rm", "deductible_rm", "paid_from", "reimbursed", "client", "file"].join(",")];
+  for (const e of sql(`SELECT e.*, COALESCE(c.company, c.name) AS client FROM expenses e LEFT JOIN clients c ON c.id = e.client_id ORDER BY e.spent_date, e.id`)) {
+    exp.push([e.spent_date, e.vendor, e.description, categoryName(e.category), (e.amount_sen / 100).toFixed(2), (deductibleSen(e) / 100).toFixed(2),
+      e.paid_from, e.reimbursed, e.client, e.file].map(csv).join(","));
+  }
+  writeFileSync(join(EXPORT, "expenses.csv"), "\uFEFF" + exp.join("\r\n") + "\r\n", "utf8");
   rmSync(tmp, { recursive: true, force: true });
   console.log(`Synced: ${made} PDF(s) updated, ${lines.length - 1} invoice(s) in ${join(EXPORT, "income.csv")}`);
 }
@@ -290,8 +345,10 @@ try {
     case "receipt": receipt(a, b, c, rest.join(" ")); break;
     case "sync": sync(); break;
     case "backup": backup(); break;
+    case "expense": if (a === "add") expenseAdd(b); else expenseList(b); break;
+    case "books": books(a); break;
     default:
-      console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n").filter(l => l.startsWith("//")).slice(0, 22).map(l => l.slice(3)).join("\n"));
+      console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n").filter(l => l.startsWith("//")).slice(0, 25).map(l => l.slice(3)).join("\n"));
   }
 } catch (err) {
   console.error("Error:", err.message);

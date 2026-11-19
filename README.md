@@ -9,7 +9,9 @@ Built for and used by [COMANTA SOLUTIONS](https://comanta.com.my), a sole propri
 |---|---|---|
 | ![Quotation](docs/quotation.png) | ![Invoice](docs/invoice.png) | ![Receipt](docs/receipt.png) |
 
-![Admin dashboard](docs/admin.jpg)
+| Documents | Books |
+|---|---|
+| ![Admin dashboard](docs/admin.jpg) | ![Books: income, expenses and profit](docs/books.jpg) |
 
 *All names, numbers and addresses in the screenshots are made up.*
 
@@ -19,6 +21,7 @@ Built for and used by [COMANTA SOLUTIONS](https://comanta.com.my), a sole propri
 - **Client links** (`/d/<random-token>`): the client opens the document in a browser and saves it as a one-page A4 PDF. Drafts are never visible.
 - **Numbering** per year and document type: `QT-2026-0001`, `INV-2026-0001`, `RCPT-2026-0001`, with an optional prefix (`ACME-INV-2026-0001`). Numbers come from a counter in the database, so they never repeat.
 - **Payments**: record full or part payments; advance payments made before the invoice date are shown as *Advance received*.
+- **Books**: money received (by the date it arrived), business expenses by category, profit per month, unpaid invoices, and a CSV for your accountant. Client entertainment counts 50%; expenses a client pays back are kept but left out of both income and expenses.
 - **Official receipts** for money already recorded, with the amount in words (*Ringgit Malaysia Five Hundred Only*) and the balance left on the invoice.
 - **Owner-only admin** at `/admin`, with a 6-digit login code sent to the owner's email. No passwords are stored.
 - **Daily backup by email**: every night the whole database (documents, receipts, clients, numbering, settings) is emailed to you as a `.sql` attachment that restores into an empty database.
@@ -28,7 +31,7 @@ Built for and used by [COMANTA SOLUTIONS](https://comanta.com.my), a sole propri
 ## How it works
 
 ```
-Browser (you)  ──/admin──►  Cloudflare Worker  ──►  D1 (SQLite): settings, clients, docs, receipts, counters
+Browser (you)  ──/admin──►  Cloudflare Worker  ──►  D1 (SQLite): settings, clients, docs, receipts, payments, expenses, counters
 Browser (client) ─/d/<token>─►     │
                                    ├─ Email Routing: login codes, "quotation accepted", daily backup
                                    └─ Cron (13:00 UTC): daily backup
@@ -73,7 +76,7 @@ npm run dev            # http://localhost:8787/admin — the login code is shown
 
 ## Day-to-day use
 
-**In the browser:** `+ Quote` → fill in the client and items (start typing to pick from the price list in `CATALOG`) → *Create* → check the draft → *Mark as sent* → copy the link or press *WhatsApp* / *Email*. When the client accepts, you get an email; press *Create deposit invoice*. When money arrives, *Record payment* (tick *also issue receipt* if you want one).
+**In the browser:** `+ Quote` → fill in the client and items (start typing to pick from the price list in `CATALOG`) → *Create* → check the draft → *Mark as sent* → copy the link or press *WhatsApp* / *Email*. When the client accepts, you get an email; press *Create deposit invoice*. When money arrives, *Record payment* (tick *also issue receipt* if you want one). Add business expenses under **Books → + Expense**; the Books page shows profit per month and *Download CSV* gives your accountant everything for the year.
 
 **From the command line** (works on the live database; add `--local` for the local one):
 
@@ -84,7 +87,9 @@ node tools/billing.mjs invoice qt-2026-1 deposit
 node tools/billing.mjs paid inv-2026-1 2350 2026-11-18 "DuitNow ref 123456"
 node tools/billing.mjs receipt inv-2026-1
 node tools/billing.mjs list
-node tools/billing.mjs sync                    # backup + PDFs + income.csv into ./exports
+node tools/billing.mjs expense add exp.json    # a business expense; format at the top of the file
+node tools/billing.mjs books 2026              # received, expenses and profit per month
+node tools/billing.mjs sync                    # backup + PDFs + income.csv + expenses.csv into ./exports
 ```
 
 Set `BILLING_EXPORT_DIR` to a folder synced by Google Drive or OneDrive to keep the PDFs in the cloud. PDFs need Chrome or Edge (`CHROME_PATH` if it is not in the usual place).
@@ -117,6 +122,7 @@ After a restore, check that each counter is not lower than the last number issue
 ## Limits
 
 - Ringgit only, English documents, Malaysian date and SST wording.
+- Books are cash-based (income when the money arrives) and do not replace an accountant; equipment still needs capital allowance worked out separately.
 - No tax calculation: for businesses that are not registered for SST. Adding a tax line is a small change in `calc()` and `renderDoc()`.
 - No LHDN MyInvois submission. Below the e-Invoice threshold you only issue one when a client asks; use the MyInvois portal for that.
 - One owner per deployment.
@@ -126,6 +132,7 @@ After a restore, check that each counter is not lower than the last number issue
 ```
 src/index.js          Worker entry: routes and the daily cron
 src/billing.js        admin pages, login, client view, actions
+src/books.js          Books: payments, expenses, monthly profit, CSV
 src/billing-core.js   money, dates, numbering and the printable documents (shared with the CLI)
 src/backup.js         SQL dump + backup email
 src/notify.js         email to the owner
@@ -136,7 +143,7 @@ tools/smoke-test.mjs  checks for the shared code: npm run check
 
 ## 中文简介
 
-给马来西亚小生意的报价单、发票、正式收据系统，跑在 Cloudflare Workers + D1 上（免费版就够用）。功能：报价单在线接受、订金和尾款发票、记录收款、正式收据（含英文大写金额）、客户专属链接与一页 A4 PDF、按年自动编号、管理后台用邮箱验证码登录、每天自动把完整资料库备份寄到你的邮箱。设定步骤见上面的 *Set it up*。
+给马来西亚小生意的报价单、发票、正式收据系统，跑在 Cloudflare Workers + D1 上（免费版就够用）。功能：报价单在线接受、订金和尾款发票、记录收款、正式收据（含英文大写金额）、客户专属链接与一页 A4 PDF、按年自动编号、记账（收入、开销分类、每月利润、导出 CSV 给会计）、管理后台用邮箱验证码登录、每天自动把完整资料库备份寄到你的邮箱。设定步骤见上面的 *Set it up*。
 
 ## Licence
 

@@ -1,7 +1,7 @@
 // Quick checks of the money, numbering and document code (no database needed): npm run check
 import assert from "node:assert/strict";
 import {
-  money, toSen, calc, invoiceAmounts, formatNumber, normalizeNumber, amountInWords, renderDoc, renderReceipt, addDays,
+  money, toSen, calc, invoiceAmounts, formatNumber, normalizeNumber, amountInWords, renderDoc, renderReceipt, addDays, deductibleSen, categoryName,
 } from "../src/billing-core.js";
 
 assert.equal(money(123456), "1,234.56");
@@ -36,5 +36,11 @@ assert.ok(html.includes("Contoh &lt;Sdn&gt; Bhd"), "client name escaped");
 assert.ok(html.includes("(to be advised)"), "empty bank account placeholder");
 const rc = renderReceipt({ number: "RCPT-2026-0001", amount_sen: 10000, paid_date: "2026-11-17", status: "issued", created_at: "2026-11-19 10:00:00" }, doc, {}, settings, { receivedToDate: 10000 });
 assert.ok(rc.includes("Ringgit Malaysia One Hundred Only") && rc.includes("OFFICIAL RECEIPT"));
+
+assert.equal(deductibleSen({ amount_sen: 10000, reimbursed: "no", deductible_pct: 100 }), 10000);
+assert.equal(deductibleSen({ amount_sen: 10000, reimbursed: "no", deductible_pct: 50 }), 5000);
+assert.equal(deductibleSen({ amount_sen: 10000, reimbursed: "reimbursed", deductible_pct: 100 }), 0);
+assert.equal(deductibleSen({ amount_sen: 10000, reimbursed: "to_bill", deductible_pct: 100 }), 0);
+assert.equal(categoryName("entertainment"), "Client entertainment");
 
 console.log("smoke test: all checks passed");

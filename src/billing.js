@@ -5,6 +5,7 @@
 // The local tool tools/billing.mjs works on the same tables through wrangler, so Claude can issue documents too.
 import { notify } from "./notify.js";
 import { emailBackup } from "./backup.js";
+import { handleBooks } from "./books.js";
 import {
   CATALOG, STATUS, esc, money, toSen, myToday, addDays, isYmd, fmtDate, calc, invoiceAmounts,
   randomToken, formatNumber, counterSql, renderDoc, renderReceipt, LOGO_SVG,
@@ -15,10 +16,10 @@ const SESSION_DAYS = 30;
 const CODE_MINUTES = 10;
 
 const headers = extra => ({ "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-robots-tag": "noindex, nofollow", ...extra });
-const page = (body, status = 200, extra = {}) => new Response(body, { status, headers: headers(extra) });
-const go = (path, extra = {}) => new Response(null, { status: 303, headers: { location: path, "cache-control": "no-store", ...extra } });
-const clean = (v, max) => (typeof v === "string" ? v.replace(/\r/g, "").trim().slice(0, max) : "");
-const int = v => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 0; };
+export const page = (body, status = 200, extra = {}) => new Response(body, { status, headers: headers(extra) });
+export const go = (path, extra = {}) => new Response(null, { status: 303, headers: { location: path, "cache-control": "no-store", ...extra } });
+export const clean = (v, max) => (typeof v === "string" ? v.replace(/\r/g, "").trim().slice(0, max) : "");
+export const int = v => { const n = parseInt(v, 10); return Number.isFinite(n) ? n : 0; };
 
 async function sha256(text) {
   const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
@@ -34,7 +35,7 @@ function sameOrigin(request, env) {
   // wrangler dev rewrites Origin to the route's host over http.
   return isLocal(env) && /^http:\/\//.test(o || "");
 }
-async function form(request) {
+export async function form(request) {
   const f = await request.formData();
   const out = {};
   for (const [k, v] of f.entries()) {
@@ -145,10 +146,10 @@ textarea{min-height:70px}.grid{display:grid;grid-template-columns:repeat(auto-fi
 .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}.actions form{display:inline}
 .share{display:flex;gap:8px;flex-wrap:wrap;align-items:center}.share input{max-width:460px}`;
 
-function adminPage(title, body) {
+export function adminPage(title, body) {
   return page(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)} | Billing admin</title><style>${ADMIN_CSS}</style></head><body>
 <header><div class="hd"><b>${LOGO_SVG.replace('width="40" height="40"', 'width="26" height="26"')}Billing admin</b>
-<a href="/admin">Documents</a><a href="/admin/new?kind=quote">+ Quote</a><a href="/admin/new?kind=invoice">+ Invoice</a><a href="/admin/settings">Settings</a>
+<a href="/admin">Documents</a><a href="/admin/new?kind=quote">+ Quote</a><a href="/admin/new?kind=invoice">+ Invoice</a><a href="/admin/books">Books</a><a href="/admin/settings">Settings</a>
 <form method="post" action="/admin/logout" style="display:inline"><button>Log out</button></form></div></header>
 <main>${body}</main></body></html>`);
 }
@@ -464,7 +465,9 @@ async function act(request, env, id) {
       if (amount <= 0) return go(`/admin/doc/${id}`);
       const paid = (doc.paid_sen || 0) + amount;
       const full = paid >= invoiceAmounts(doc).bill;
-      await set("paid_sen=?, paid_date=?, payment_ref=?, status=?", paid, isYmd(d.paid_date) ? d.paid_date : myToday(), clean(d.ref, 120) || doc.payment_ref, full ? "paid" : "sent");
+      const paidOn = isYmd(d.paid_date) ? d.paid_date : myToday();
+      await set("paid_sen=?, paid_date=?, payment_ref=?, status=?", paid, paidOn, clean(d.ref, 120) || doc.payment_ref, full ? "paid" : "sent");
+      await env.DB.prepare("INSERT INTO payments (invoice_id, amount_sen, paid_date, ref) VALUES (?,?,?,?)").bind(id, amount, paidOn, clean(d.ref, 160) || null).run();
       if (d.receipt === "1") {
         const fresh = await env.DB.prepare("SELECT * FROM docs WHERE id = ?").bind(id).first();
         const rid = await createReceipt(env, fresh, amount, d.paid_date, "Bank transfer", d.ref);
@@ -599,6 +602,10 @@ export async function handleBilling(request, env, ctx, url) {
   if (p === "/admin/logout" && post) return logout(request, env);
 
   if (p === "/admin" || p === "/admin/") return dashboard(env, url);
+  if (p.startsWith("/admin/books")) {
+    const res = await handleBooks(request, env, url);
+    if (res) return res;
+  }
   if (p === "/admin/new") return editForm(env, url);
   if (p === "/admin/save" && post) return saveDoc(request, env);
   if (p === "/admin/settings") return post ? saveSettings(request, env) : settingsPage(env, url);

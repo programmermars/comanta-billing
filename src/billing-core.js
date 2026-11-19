@@ -287,3 +287,24 @@ ${rc.notes ? `<section class="box"><h3>Notes</h3>${nl2br(rc.notes)}</section>` :
 <div class="foot"><span>This is a computer-generated receipt. No signature is required.</span><span>${esc(rc.number)}</span></div>
 </main></body></html>`;
 }
+
+// Expense categories for the books (roughly the lines of the Form B business income schedule).
+// pct = share normally deductible; entertainment is usually only 50% deductible. Check with your tax agent.
+export const EXPENSE_CATEGORIES = [
+  { key: "software", en: "Software & subscriptions", zh: "软件与订阅", pct: 100 },
+  { key: "registration", en: "Registration & licences (SSM etc.)", zh: "注册与执照（SSM 等）", pct: 100 },
+  { key: "internet", en: "Phone & internet", zh: "电话与网络", pct: 100 },
+  { key: "website", en: "Domain & hosting", zh: "域名与网站", pct: 100 },
+  { key: "marketing", en: "Marketing & advertising", zh: "广告与推广", pct: 100 },
+  { key: "transport", en: "Transport & travel", zh: "交通与出差", pct: 100 },
+  { key: "professional", en: "Professional fees (accountant etc.)", zh: "专业服务费（会计等）", pct: 100 },
+  { key: "bank", en: "Bank charges", zh: "银行手续费", pct: 100 },
+  { key: "office", en: "Office supplies", zh: "办公用品", pct: 100 },
+  { key: "training", en: "Training & books", zh: "培训与书籍", pct: 100 },
+  { key: "entertainment", en: "Client entertainment", zh: "招待客户", pct: 50 },
+  { key: "equipment", en: "Equipment (capital allowance)", zh: "设备（资本免税额）", pct: 100 },
+  { key: "other", en: "Other", zh: "其他", pct: 100 },
+];
+export const categoryName = key => (EXPENSE_CATEGORIES.find(c => c.key === key) || { en: key }).en;
+// Deductible part of one expense: nothing if a client reimbursed it (or will), otherwise amount × deductible %.
+export const deductibleSen = e => (e.reimbursed === "no" ? Math.round(e.amount_sen * (e.deductible_pct ?? 100) / 100) : 0);
