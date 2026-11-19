@@ -11,6 +11,9 @@ import { adminPage, page, go, clean, int, form } from "./billing.js";
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const REIMB = { no: "No", to_bill: "To bill client", reimbursed: "Reimbursed by client" };
 const rm = sen => `RM ${money(sen)}`;
+// A receipt link opens directly; a plain file name is shown as text.
+const fileLink = f => !f ? "" : /^https?:\/\//.test(f) ? `<a href="${esc(f)}" target="_blank" rel="noopener">View receipt</a>` : `<span class="note">${esc(f)}</span>`;
+
 
 async function loadYear(env, year) {
   const like = `${year}-%`;
@@ -46,8 +49,14 @@ async function dashboard(env, url) {
   const expRows = expenses.slice().reverse().map(e => `<tr><td>${esc(fmtDate(e.spent_date))}</td><td><a href="/admin/books/expense/${e.id}">${esc(e.vendor)}</a><br><span class="note">${esc(e.description || "")}</span></td>
     <td>${esc(categoryName(e.category))}</td><td class="r">${money(e.amount_sen)}</td><td class="r">${money(deductibleSen(e))}</td>
     <td>${e.reimbursed === "no" ? (e.paid_from === "personal" ? '<span class="pill">Personal account</span>' : "") : `<span class="pill ${e.reimbursed === "reimbursed" ? "paid" : "sent"}">${esc(REIMB[e.reimbursed])}${e.client ? " · " + esc(e.client) : ""}</span>`}</td>
-    <td class="note">${esc(e.file || "")}</td></tr>`).join("");
-  const payRows = payments.slice().reverse().map(p => `<tr><td>${esc(fmtDate(p.paid_date))}</td><td><a href="/admin/doc/${p.invoice_id}">${esc(p.number || "")}</a></td><td>${esc(p.client || "")}</td><td class="note">${esc(p.ref || "")}</td><td class="r">${money(p.amount_sen)}</td></tr>`).join("");
+    <td>${fileLink(e.file)}</td></tr>`).join("");
+  const { results: rcs } = await env.DB.prepare("SELECT id, number, invoice_id, amount_sen, paid_date FROM receipts WHERE status = 'issued'").all();
+  const rcFor = p => rcs.find(r => r.invoice_id === p.invoice_id && r.paid_date === p.paid_date && r.amount_sen === p.amount_sen);
+  const payRows = payments.slice().reverse().map(p => {
+    const rc = rcFor(p);
+    return `<tr><td>${esc(fmtDate(p.paid_date))}</td><td><a href="/admin/doc/${p.invoice_id}">${esc(p.number || "")}</a></td><td>${esc(p.client || "")}</td><td class="note">${esc(p.ref || "")}</td>
+      <td>${rc ? `<a href="/admin/receipt/${rc.id}">${esc(rc.number)}</a>` : `<a class="note" href="/admin/doc/${p.invoice_id}">+ receipt</a>`}</td><td class="r">${money(p.amount_sen)}</td></tr>`;
+  }).join("");
 
   return adminPage(`Books ${year}`, `<h1>Books ${esc(year)}</h1>
 <div class="tabs">${yearLinks}<a href="/admin/books/expense/new" style="margin-left:auto;background:var(--teal);color:#fff;border-color:var(--teal)">+ Expense</a><a href="/admin/books.csv?year=${esc(year)}">Download CSV</a></div>
@@ -70,12 +79,12 @@ ${byCat.length ? `<h2>Expenses by category</h2><table class="list"><tr><th>Categ
 ${byCat.map(r => `<tr><td>${esc(r.name)}</td><td class="r">${r.count}</td><td class="r">${money(r.paid)}</td><td class="r">${money(r.ded)}</td></tr>`).join("")}</table>` : ""}
 
 <h2>Expenses</h2>
-<table class="list"><tr><th>Date</th><th>Vendor</th><th>Category</th><th class="r">Paid (RM)</th><th class="r">Deductible (RM)</th><th></th><th>Receipt file</th></tr>
+<table class="list"><tr><th>Date</th><th>Vendor</th><th>Category</th><th class="r">Paid (RM)</th><th class="r">Deductible (RM)</th><th></th><th>Receipt</th></tr>
 ${expRows || '<tr><td colspan="7" class="note">No expenses yet. Press + Expense.</td></tr>'}</table>
 
 <h2>Money received</h2>
-<table class="list"><tr><th>Date</th><th>Invoice</th><th>Client</th><th>Reference</th><th class="r">Amount (RM)</th></tr>
-${payRows || '<tr><td colspan="5" class="note">No payments recorded yet.</td></tr>'}</table>`);
+<table class="list"><tr><th>Date</th><th>Invoice</th><th>Client</th><th>Reference</th><th>Receipt</th><th class="r">Amount (RM)</th></tr>
+${payRows || '<tr><td colspan="6" class="note">No payments recorded yet.</td></tr>'}</table>`);
 }
 
 async function expenseForm(env, id) {

@@ -7,6 +7,7 @@
 //   node tools/billing.mjs send QT-2026-0001            draft -> sent, prints the client link
 //   node tools/billing.mjs invoice QT-2026-0001 deposit|full|balance   -> draft invoice from a quotation
 //   node tools/billing.mjs paid INV-2026-0001 1000 [2026-11-20] [bank ref]
+//   node tools/billing.mjs repeat INV-2026-0001       next month's invoice: same client and items, dates moved one month (draft)
 //   node tools/billing.mjs receipt INV-2026-0001 [amount] [2026-11-20] [bank ref]   receipt for money already recorded
 //   node tools/billing.mjs expense add exp.json          record a business expense (format below)
 //   node tools/billing.mjs expense list [2026]
@@ -31,7 +32,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  STATUS, EXPENSE_CATEGORIES, categoryName, deductibleSen, money, toSen, myToday, addDays, isYmd, calc, invoiceAmounts, randomToken, formatNumber, normalizeNumber, counterSql, renderDoc, renderReceipt,
+  STATUS, EXPENSE_CATEGORIES, categoryName, deductibleSen, money, toSen, myToday, addDays, isYmd, calc, invoiceAmounts, randomToken, formatNumber, normalizeNumber, nextMonthText, counterSql, renderDoc, renderReceipt,
 } from "../src/billing-core.js";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -178,6 +179,20 @@ function paid(number, amount, date, ref) {
        status = '${full ? "paid" : "sent"}', updated_at = datetime('now') WHERE id = ${d.id};
        INSERT INTO payments (invoice_id, amount_sen, paid_date, ref) VALUES (${d.id}, ${add}, ${q(on)}, ${q(ref)})`);
   console.log(`${d.number}: received RM ${money(add)}${full ? " — fully paid" : `, still due RM ${money(invoiceAmounts(d).bill - total)}`}`);
+}
+
+// Next month's invoice for a monthly service: same client and items, every date in the text moved one month on.
+function repeat(number) {
+  const d = findDoc(number);
+  if (d.kind !== "invoice") throw new Error(`${d.number} is not an invoice`);
+  const s = settings();
+  const issue = myToday();
+  const inv = nextNumber("invoice", issue);
+  const items = JSON.stringify(JSON.parse(d.items).map(it => ({ ...it, desc: nextMonthText(it.desc) })));
+  sql(`INSERT INTO docs (kind, number, token, client_id, title, issue_date, end_date, status, items, discount_sen, total_sen, deposit_pct, invoice_type, bill_sen, notes, terms)
+       VALUES ('invoice', ${q(inv)}, ${q(randomToken())}, ${d.client_id ?? "NULL"}, ${q(nextMonthText(d.title))}, ${q(issue)}, ${q(addDays(issue, s.invoice_due_days))}, 'draft',
+       ${q(items)}, ${d.discount_sen}, ${d.total_sen}, 0, 'full', ${d.total_sen}, ${q(nextMonthText(d.notes))}, ${q(d.terms)})`);
+  console.log(`${inv} created as a draft from ${d.number}: ${nextMonthText(d.title || "")} RM ${money(d.total_sen)}. Check it, then: node tools/billing.mjs send ${inv}`);
 }
 
 // Official receipt for payment already recorded with "paid" (default: everything not yet receipted).
@@ -343,12 +358,13 @@ try {
     case "invoice": invoiceFrom(a, b); break;
     case "paid": paid(a, b, c, rest.join(" ")); break;
     case "receipt": receipt(a, b, c, rest.join(" ")); break;
+    case "repeat": repeat(a); break;
     case "sync": sync(); break;
     case "backup": backup(); break;
     case "expense": if (a === "add") expenseAdd(b); else expenseList(b); break;
     case "books": books(a); break;
     default:
-      console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n").filter(l => l.startsWith("//")).slice(0, 25).map(l => l.slice(3)).join("\n"));
+      console.log(readFileSync(fileURLToPath(import.meta.url), "utf8").split("\n").filter(l => l.startsWith("//")).slice(0, 26).map(l => l.slice(3)).join("\n"));
   }
 } catch (err) {
   console.error("Error:", err.message);

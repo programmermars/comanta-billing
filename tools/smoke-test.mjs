@@ -1,7 +1,7 @@
 // Quick checks of the money, numbering and document code (no database needed): npm run check
 import assert from "node:assert/strict";
 import {
-  money, toSen, calc, invoiceAmounts, formatNumber, normalizeNumber, amountInWords, renderDoc, renderReceipt, addDays, deductibleSen, categoryName,
+  money, toSen, calc, invoiceAmounts, formatNumber, normalizeNumber, amountInWords, renderDoc, renderReceipt, addDays, deductibleSen, categoryName, nextMonthText,
 } from "../src/billing-core.js";
 
 assert.equal(money(123456), "1,234.56");
@@ -42,5 +42,8 @@ assert.equal(deductibleSen({ amount_sen: 10000, reimbursed: "no", deductible_pct
 assert.equal(deductibleSen({ amount_sen: 10000, reimbursed: "reimbursed", deductible_pct: 100 }), 0);
 assert.equal(deductibleSen({ amount_sen: 10000, reimbursed: "to_bill", deductible_pct: 100 }), 0);
 assert.equal(categoryName("entertainment"), "Client entertainment");
+
+assert.equal(nextMonthText("Service 10 Nov 2026 - 9 Dec 2026"), "Service 10 Dec 2026 - 9 Jan 2027");
+assert.equal(nextMonthText("31 Jan 2027, Dec 2026"), "28 Feb 2027, Jan 2027");
 
 console.log("smoke test: all checks passed");

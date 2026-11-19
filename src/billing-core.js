@@ -308,3 +308,16 @@ export const EXPENSE_CATEGORIES = [
 export const categoryName = key => (EXPENSE_CATEGORIES.find(c => c.key === key) || { en: key }).en;
 // Deductible part of one expense: nothing if a client reimbursed it (or will), otherwise amount × deductible %.
 export const deductibleSen = e => (e.reimbursed === "no" ? Math.round(e.amount_sen * (e.deductible_pct ?? 100) / 100) : 0);
+
+
+// "10 Nov 2026 - 9 Dec 2026" -> "10 Dec 2026 - 9 Jan 2027" (also "Nov 2026" -> "Dec 2026"), for repeating a monthly invoice.
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export function nextMonthText(text) {
+  return String(text ?? "").replace(/\b(?:(\d{1,2}) )?(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.? (\d{4})\b/g, (all, d, mon, y) => {
+    let m = MON.indexOf(mon) + 1, year = Number(y);
+    if (m === 12) { m = 0; year++; }
+    if (!d) return `${MON[m]} ${year}`;
+    const last = new Date(Date.UTC(year, m + 1, 0)).getUTCDate();
+    return `${Math.min(Number(d), last)} ${MON[m]} ${year}`;
+  });
+}

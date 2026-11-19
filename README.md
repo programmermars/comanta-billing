@@ -20,6 +20,7 @@ Built for and used by [COMANTA SOLUTIONS](https://comanta.com.my), a sole propri
 - **Quotation → deposit invoice → balance invoice → receipt**, with the client accepting the quotation online (they type their name and press *Accept*).
 - **Client links** (`/d/<random-token>`): the client opens the document in a browser and saves it as a one-page A4 PDF. Drafts are never visible.
 - **Numbering** per year and document type: `QT-2026-0001`, `INV-2026-0001`, `RCPT-2026-0001`, with an optional prefix (`ACME-INV-2026-0001`). Numbers come from a counter in the database, so they never repeat.
+- **Monthly services**: one click on *Next month's invoice* copies the client and items with every date moved a month on.
 - **Payments**: record full or part payments; advance payments made before the invoice date are shown as *Advance received*.
 - **Books**: money received (by the date it arrived), business expenses by category, profit per month, unpaid invoices, and a CSV for your accountant. Client entertainment counts 50%; expenses a client pays back are kept but left out of both income and expenses.
 - **Official receipts** for money already recorded, with the amount in words (*Ringgit Malaysia Five Hundred Only*) and the balance left on the invoice.
@@ -86,6 +87,7 @@ node tools/billing.mjs send qt-2026-1          # short numbers work
 node tools/billing.mjs invoice qt-2026-1 deposit
 node tools/billing.mjs paid inv-2026-1 2350 2026-11-18 "DuitNow ref 123456"
 node tools/billing.mjs receipt inv-2026-1
+node tools/billing.mjs repeat inv-2026-1           # next month's invoice for a monthly service
 node tools/billing.mjs list
 node tools/billing.mjs expense add exp.json    # a business expense; format at the top of the file
 node tools/billing.mjs books 2026              # received, expenses and profit per month

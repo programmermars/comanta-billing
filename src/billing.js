@@ -8,7 +8,7 @@ import { emailBackup } from "./backup.js";
 import { handleBooks } from "./books.js";
 import {
   CATALOG, STATUS, esc, money, toSen, myToday, addDays, isYmd, fmtDate, calc, invoiceAmounts,
-  randomToken, formatNumber, counterSql, renderDoc, renderReceipt, LOGO_SVG,
+  randomToken, formatNumber, counterSql, renderDoc, renderReceipt, LOGO_SVG, nextMonthText,
 } from "./billing-core.js";
 
 const COOKIE = "cm_admin";
@@ -148,11 +148,14 @@ textarea{min-height:70px}.grid{display:grid;grid-template-columns:repeat(auto-fi
 
 export function adminPage(title, body) {
   return page(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)} | Billing admin</title><style>${ADMIN_CSS}</style></head><body>
-<header><div class="hd"><b>${LOGO_SVG.replace('width="40" height="40"', 'width="26" height="26"')}Billing admin</b>
-<a href="/admin">Documents</a><a href="/admin/new?kind=quote">+ Quote</a><a href="/admin/new?kind=invoice">+ Invoice</a><a href="/admin/books">Books</a><a href="/admin/settings">Settings</a>
-<form method="post" action="/admin/logout" style="display:inline"><button>Log out</button></form></div></header>
+${adminNav()}
 <main>${body}</main></body></html>`);
 }
+
+// The top bar on every owner page (also on single documents and receipts), so Home is always one click away.
+export const adminNav = () => `<header class="noprint"><div class="hd"><a href="/admin" style="margin-right:auto;display:flex;gap:8px;align-items:center;font-size:16px;letter-spacing:.05em">${LOGO_SVG.replace('width="40" height="40"', 'width="26" height="26"')}Billing admin</a>
+<a href="/admin">🏠 Home</a><a href="/admin/new?kind=quote">+ Quote</a><a href="/admin/new?kind=invoice">+ Invoice</a><a href="/admin/?kind=receipt">Receipts</a><a href="/admin/books">Books</a><a href="/admin/settings">Settings</a>
+<form method="post" action="/admin/logout" style="display:inline"><button>Log out</button></form></div></header>`;
 
 const pill = (kind, status) => `<span class="pill ${esc(status)}">${esc(STATUS[kind]?.[status] || status)}</span>`;
 
@@ -361,12 +364,12 @@ async function receiptPage(env, id) {
   const phone = (client?.phone || "").replace(/\D/g, "").replace(/^0/, "60");
   const waText = encodeURIComponent(`Hi ${client?.name || ""}, here is receipt ${rc.number} from ${s.biz_name} for RM ${money(rc.amount_sen)}: ${link}`);
   const voidBtn = rc.status === "issued" ? `<form method="post" action="/admin/receipt/${rc.id}/void" onsubmit="return confirm('Void ${esc(rc.number)}?')" style="display:inline"><button class="danger">Void</button></form>` : "";
-  const extra = `<div class="extra noprint" style="max-width:1100px;margin:0 auto;padding:20px 16px 0">
+  const extra = `${adminNav()}<div class="extra noprint" style="max-width:1100px;margin:0 auto;padding:20px 16px 0">
 <p><a href="/admin/doc/${rc.invoice_id}">← Invoice ${esc(invoice?.number || "")}</a></p>
 <h1 style="margin:6px 0;text-align:left;font-size:22px;color:var(--navy)">${esc(rc.number)} ${pill("receipt", rc.status)}</h1>
 <div class="share"><input value="${link}" readonly onclick="this.select()"><button type="button" onclick="navigator.clipboard.writeText('${link}');this.textContent='Copied'">Copy link</button>
 <a class="btn" target="_blank" rel="noopener" href="https://wa.me/${phone}?text=${waText}">WhatsApp</a><a class="btn" target="_blank" href="/d/${rc.token}">Open client view</a>${voidBtn}</div></div>`;
-  const bits = ADMIN_CSS.split("\n").filter(l => /^\.(pill|btn|actions|share|flash|note)/.test(l)).join("\n");
+  const bits = ADMIN_CSS.split("\n").filter(l => /^(header|\.hd|\.(pill|btn|actions|share|flash|note))/.test(l)).join("\n");
   return page(renderReceipt(rc, invoice, client, s, { extra, receivedToDate: toDate })
     .replace("</style>", `${bits}\n.extra input{font:14px Arial;padding:8px 10px;border:1px solid #CBD5E1;border-radius:7px}\n.extra a{color:var(--teal)}\n</style>`));
 }
@@ -422,6 +425,7 @@ async function docPage(env, id, url) {
   }
   if (isInv && ["draft", "sent"].includes(doc.status)) acts.push(btn("void", "Void", "danger", ` onsubmit="return confirm('Void ${esc(doc.number)}? It stays in the list as VOID.')"`));
   if (doc.status === "draft") acts.push(btn("delete", "Delete draft", "danger", ` onsubmit="return confirm('Delete draft ${esc(doc.number)}?')"`));
+  if (isInv) acts.push(btn("repeat", "↻ Next month's invoice", "p"));
   acts.push(btn("duplicate", "Duplicate"));
 
   const phone = (client?.phone || "").replace(/\D/g, "").replace(/^0/, "60");
@@ -434,13 +438,13 @@ async function docPage(env, id, url) {
   const related = !isInv && invoices.length ? `<p>Invoices: ${invoices.map(i => `<a href="/admin/doc/${i.id}">${esc(i.number)}</a> (${esc(i.invoice_type)}, ${esc(STATUS.invoice[i.status])})`).join(", ")}</p>` :
     isInv && quote ? `<p>From quotation <a href="/admin/doc/${quote.id}">${esc(quote.number)}</a></p>` : "";
   const msg = MSG[url.searchParams.get("msg")] ? `<div class="flash">${MSG[url.searchParams.get("msg")]}</div>` : "";
-  const admin = `<div class="extra noprint" style="max-width:1100px;margin:0 auto;padding:20px 16px 0">
+  const admin = `${adminNav()}<div class="extra noprint" style="max-width:1100px;margin:0 auto;padding:20px 16px 0">
 <p><a href="/admin">← All documents</a></p>${msg}
 <h1 style="margin:6px 0;text-align:left;font-size:22px;color:var(--navy)">${esc(doc.number)} ${pill(doc.kind, doc.status)}</h1>${related}
 <div class="actions">${acts.join("")}</div>${receiptsHtml}${share}</div>`;
   const body = renderDoc(doc, client, s, { extra: admin, quoteNumber: quote?.number });
   // Add only the admin bits (buttons, pills, share box) so the document itself keeps its own look.
-  const bits = ADMIN_CSS.split("\n").filter(l => /^\.(pill|btn|actions|share|flash|note)/.test(l)).join("\n");
+  const bits = ADMIN_CSS.split("\n").filter(l => /^(header|\.hd|\.(pill|btn|actions|share|flash|note))/.test(l)).join("\n");
   return page(body.replace("</style>", `${bits}\n.extra input{font:14px Arial;padding:8px 10px;border:1px solid #CBD5E1;border-radius:7px}\n.extra a{color:var(--teal)}\n</style>`));
 }
 
@@ -479,6 +483,18 @@ async function act(request, env, id) {
       if (doc.kind !== "invoice") return go(`/admin/doc/${id}`);
       const rid = await createReceipt(env, doc, toSen(d.amount), d.paid_date, d.method, d.ref);
       return go(rid ? `/admin/receipt/${rid}?msg=receipt` : `/admin/doc/${id}`);
+    }
+    case "repeat": {
+      // Same client and items with every date in the subject, items and notes moved one month on; a new draft for review.
+      if (doc.kind !== "invoice") return go(`/admin/doc/${id}`);
+      const issue = myToday();
+      const number = await nextNumber(env, "invoice", issue);
+      const items = JSON.stringify(JSON.parse(doc.items).map(it => ({ ...it, desc: nextMonthText(it.desc) })));
+      const r = await env.DB.prepare(`INSERT INTO docs (kind, number, token, client_id, title, issue_date, end_date, status, items, discount_sen, total_sen, deposit_pct, invoice_type, bill_sen, notes, terms)
+          VALUES ('invoice',?,?,?,?,?,?,'draft',?,?,?,0,'full',?,?,?)`)
+        .bind(number, randomToken(), doc.client_id, nextMonthText(doc.title), issue, addDays(issue, s.invoice_due_days), items, doc.discount_sen, doc.total_sen,
+          doc.total_sen, nextMonthText(doc.notes), doc.terms).run();
+      return go(`/admin/doc/${r.meta.last_row_id}?msg=created`);
     }
     case "duplicate": {
       const issue = myToday();
